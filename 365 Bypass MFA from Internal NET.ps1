@@ -4,25 +4,40 @@
 
 $RequiredScopes = @(
     "Policy.ReadWrite.ConditionalAccess",
-    "Policy.Read.All"
+    "Policy.Read.All",
+    "NetworkAccess.ReadWrite.All"
 )
 
-# Microsoft Graph installieren, falls nicht vorhanden
-if (-not (Get-Module Microsoft.Graph.Authentication -ListAvailable)) {
-    Write-Host "Microsoft Graph PowerShell SDK wird installiert..." -ForegroundColor Yellow
+$RequiredModules = @(
+    "Microsoft.Graph.Authentication",
+    "Microsoft.Graph.Identity.SignIns"
+)
 
-    try {
-        Install-Module Microsoft.Graph -Scope CurrentUser -Repository PSGallery -Force -AllowClobber
+# Microsoft Graph Module installieren, falls nicht vorhanden
+foreach ($Module in $RequiredModules) {
+
+    if (-not (Get-Module $Module -ListAvailable)) {
+
+        Write-Host "Microsoft Graph Modul $Module wird installiert..." -ForegroundColor Yellow
+
+        try {
+            Install-Module `
+                -Name $Module `
+                -Scope CurrentUser `
+                -Repository PSGallery `
+                -Force `
+                -AllowClobber
+        }
+        catch {
+            Write-Host "Fehler beim Installieren von $Module" -ForegroundColor Red
+            Write-Host $_.Exception.Message
+            exit
+        }
     }
-    catch {
-        Write-Host "Fehler beim Installieren des Microsoft Graph SDK." -ForegroundColor Red
-        Write-Host $_.Exception.Message
-        exit
-    }
+
+    Import-Module $Module -ErrorAction Stop
 }
 
-# Modul laden
-Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
 
 # Verbindung prüfen
 try {
@@ -32,18 +47,25 @@ catch {
     $Context = $null
 }
 
+
 if (-not $Context) {
+
     Write-Host "Verbinde mit Microsoft Graph..." -ForegroundColor Cyan
 
-    Connect-MgGraph -Scopes $RequiredScopes -NoWelcome
+    Connect-MgGraph `
+        -Scopes $RequiredScopes `
+        -NoWelcome
 
     $Context = Get-MgContext
 
+
     if (-not $Context) {
+
         Write-Host "Verbindung zu Microsoft Graph konnte nicht hergestellt werden." -ForegroundColor Red
         exit
     }
 }
+
 
 Write-Host ""
 Write-Host "Erfolgreich verbunden!" -ForegroundColor Green
