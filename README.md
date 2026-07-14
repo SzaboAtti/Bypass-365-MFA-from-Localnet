@@ -40,7 +40,17 @@ Das Skript richtet sich an Administratoren, die eine MFA-Ausnahme für einen ver
 ## Hinweis
 
 Vor dem produktiven Einsatz sollten Conditional Access-Richtlinien immer zunächst mit einer Testgruppe oder in einem Test-Tenant geprüft werden. Fehlerhafte Richtlinien können Administratoranmeldungen verhindern.
+## Ausführung
 
-## Lizenz
+Das Skript kann direkt aus dem GitHub-Repository heruntergeladen und anschließend ausgeführt werden.
 
-MIT-Lizenz
+PowerShell als Administrator öffnen und ausführen:
+
+```powershell
+Invoke-WebRequest `
+-Uri "https://raw.githubusercontent.com/SzaboAtti/Bypass-365-MFA-from-Localnet/main/Bypass-365-MFA-from-Localnet.ps1" `
+-OutFile ".\Bypass-365-MFA-from-Localnet.ps1"
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+.\Bypass-365-MFA-from-Localnet.ps1
