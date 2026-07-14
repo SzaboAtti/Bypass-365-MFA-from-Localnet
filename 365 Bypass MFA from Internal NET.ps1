@@ -1,60 +1,37 @@
-# ============================================================
-# Microsoft Entra ID - Trusted Location Creator
-# Erstellt:
-#   - Trusted Named Location
-#   - Conditional Access Policy für MFA-Ausnahme
-#
-# Voraussetzungen:
-#   - Entra ID
-#   - Conditional Access Lizenz
-#   - Global Administrator oder Conditional Access Administrator
-#
-# ============================================================
+# ============================================
+# Microsoft Graph vorbereiten
+# ============================================
 
-
-# ============================================================
-# Microsoft Graph Module vorbereiten
-# ============================================================
+$RequiredScopes = @(
+    "Policy.ReadWrite.ConditionalAccess",
+    "Policy.Read.All",
+    "NetworkAccess.ReadWrite.All"
+)
 
 $RequiredModules = @(
     "Microsoft.Graph.Authentication",
     "Microsoft.Graph.Identity.SignIns"
 )
 
-$RequiredScopes = @(
-    "Policy.ReadWrite.ConditionalAccess",
-    "NetworkAccess.ReadWrite.All"
-)
-
-
-Write-Host ""
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host " Entra ID Trusted Location Creator" -ForegroundColor Cyan
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host ""
-
-
+# Microsoft Graph Module installieren, falls nicht vorhanden
 foreach ($Module in $RequiredModules) {
 
-    if (-not (Get-Module -ListAvailable -Name $Module)) {
+    if (-not (Get-Module $Module -ListAvailable)) {
 
-        Write-Host "Installiere Microsoft Graph Modul: $Module" -ForegroundColor Yellow
+        Write-Host "Microsoft Graph Modul $Module wird installiert..." -ForegroundColor Yellow
 
         try {
-
             Install-Module `
                 -Name $Module `
                 -Scope CurrentUser `
+                -Repository PSGallery `
                 -Force `
-                -AllowClobber `
-                -Repository PSGallery
-
+                -AllowClobber
         }
         catch {
-
             Write-Host "Fehler beim Installieren von $Module" -ForegroundColor Red
             Write-Host $_.Exception.Message
-            exit 1
+            exit
         }
     }
 
@@ -62,286 +39,99 @@ foreach ($Module in $RequiredModules) {
 }
 
 
-# ============================================================
-# Microsoft Graph Verbindung
-# ============================================================
-
-
-$GraphContext = Get-MgContext
-
-
-if (-not $GraphContext) {
-
-    Write-Host "Verbinde mit Microsoft Graph..." -ForegroundColor Cyan
-
-    try {
-
-        Connect-MgGraph `
-            -Scopes $RequiredScopes `
-            -NoWelcome
-
-    }
-    catch {
-
-        Write-Host "Microsoft Graph Anmeldung fehlgeschlagen." -ForegroundColor Red
-        Write-Host $_.Exception.Message
-        exit 1
-    }
-
-
-    $GraphContext = Get-MgContext
+# Verbindung prüfen
+try {
+    $Context = Get-MgContext
+}
+catch {
+    $Context = $null
 }
 
 
-if (-not $GraphContext) {
+if (-not $Context) {
 
-    Write-Host "Keine Graph-Verbindung vorhanden." -ForegroundColor Red
-    exit 1
+    Write-Host "Verbinde mit Microsoft Graph..." -ForegroundColor Cyan
+
+    Connect-MgGraph `
+        -Scopes $RequiredScopes `
+        -NoWelcome
+
+    $Context = Get-MgContext
+
+
+    if (-not $Context) {
+
+        Write-Host "Verbindung zu Microsoft Graph konnte nicht hergestellt werden." -ForegroundColor Red
+        exit
+    }
 }
 
 
 Write-Host ""
 Write-Host "Erfolgreich verbunden!" -ForegroundColor Green
-Write-Host "Benutzer : $($GraphContext.Account)"
-Write-Host "Tenant   : $($GraphContext.TenantId)"
+Write-Host "Benutzer : $($Context.Account)"
+Write-Host "Tenant  : $($Context.TenantId)"
 Write-Host ""
 
+# Microsoft Graph muss bereits verbunden sein:
+# Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
 
-# ============================================================
-# Öffentliche IP ermitteln
-# ============================================================
+# -------------------------------
+# Öffentliche IP automatisch abrufen
+# -------------------------------
+$PublicIP = (Invoke-RestMethod "https://api.ipify.org").Trim()
 
+# Netzgröße abfragen (z.B. 32, 29, 28, 24 ...)
+$Prefix = Read-Host "CIDR-Netzgröße eingeben (nur Zahl, z.B. 32, 29 oder 28)"
 
-try {
-
-    $PublicIP = (Invoke-RestMethod `
-        -Uri "https://api.ipify.org" `
-        -ErrorAction Stop).Trim()
-
-}
-catch {
-
-    Write-Host "Öffentliche IP konnte nicht ermittelt werden." -ForegroundColor Red
-    exit 1
-}
-
-
-Write-Host "Öffentliche IP: $PublicIP" -ForegroundColor Cyan
-
-
-# ============================================================
-# CIDR Größe abfragen
-# ============================================================
-
-
-do {
-
-    $Prefix = Read-Host `
-    "CIDR-Netzgröße eingeben (z.B. 32, 29, 28, 24)"
-
-}
-until ($Prefix -match "^(8|9|1[0-9]|2[0-9]|3[0-2])$")
-
-
+# CIDR-Adresse zusammensetzen
 $TrustedIP = "$PublicIP/$Prefix"
 
+Write-Host "Verwendete IP: $TrustedIP" -ForegroundColor Cyan
 
-Write-Host ""
-Write-Host "Verwendetes Netzwerk:"
-Write-Host $TrustedIP -ForegroundColor Cyan
-Write-Host ""
+# -------------------------------
+# Variablen
+# -------------------------------
+$trustedLocationName = "LocalOffice"
+$policyName = "Bypass MFA from Local Network"
 
+# -------------------------------
+# Trusted Location erstellen
+# -------------------------------
+$namedLocation = New-MgIdentityConditionalAccessNamedLocation`
+    -DisplayName $trustedLocationName `
+    -Ip `
+    -IpRanges @(
+        @{
+            "@odata.type" = "#microsoft.graph.iPv4CidrRange"
+            CidrAddress = $TrustedIP
+        }
+    ) `
+    -IsTrusted $true
 
-# ============================================================
-# Namen definieren
-# ============================================================
+Write-Host "Trusted Location erstellt: $($namedLocation.Id)" -ForegroundColor Green
 
-
-$TrustedLocationName = "LocalOffice-$PublicIP"
-$PolicyName = "Bypass MFA from Local Network"
-
-
-# ============================================================
-# Prüfen ob Named Location bereits existiert
-# ============================================================
-
-
-Write-Host "Prüfe vorhandene Trusted Locations..." -ForegroundColor Yellow
-
-
-$ExistingLocation = Get-MgIdentityConditionalAccessNamedLocation |
-Where-Object {
-    $_.DisplayName -eq $TrustedLocationName
-}
-
-
-if ($ExistingLocation) {
-
-    Write-Host ""
-    Write-Host "Trusted Location existiert bereits:" -ForegroundColor Yellow
-    Write-Host $ExistingLocation.Id
-    exit
-}
-
-
-
-# ============================================================
-# Trusted Named Location erstellen
-# ============================================================
-
-
-Write-Host "Erstelle Trusted Location..." -ForegroundColor Cyan
-
-
-try {
-
-
-    $LocationBody = @{
-
-        "@odata.type" = "#microsoft.graph.ipNamedLocation"
-
-        displayName = $TrustedLocationName
-
-        isTrusted = $true
-
-        ipRanges = @(
-
-            @{
-                "@odata.type" = "#microsoft.graph.iPv4CidrRange"
-                cidrAddress = $TrustedIP
-            }
-
-        )
-
-    }
-
-
-
-    $NamedLocation = New-MgIdentityConditionalAccessNamedLocation `
-        -BodyParameter $LocationBody
-
-
-}
-catch {
-
-    Write-Host ""
-    Write-Host "Fehler beim Erstellen der Trusted Location." -ForegroundColor Red
-    Write-Host $_.Exception.Message
-    exit 1
-}
-
-
-
-if (-not $NamedLocation.Id) {
-
-    Write-Host "Trusted Location wurde nicht erstellt." -ForegroundColor Red
-    exit 1
-
-}
-
-
-Write-Host ""
-Write-Host "Trusted Location erstellt:" -ForegroundColor Green
-Write-Host $NamedLocation.Id
-
-
-
-# ============================================================
+# -------------------------------
 # Conditional Access Policy erstellen
-# ============================================================
-
-
-Write-Host ""
-Write-Host "Erstelle Conditional Access Policy..." -ForegroundColor Cyan
-
-
-try {
-
-
-$PolicyBody = @{
-
-    displayName = $PolicyName
-
-    state = "enabled"
-
-
-    conditions = @{
-
-        users = @{
-
-            includeUsers = @(
-                "All"
-            )
-
+# -------------------------------
+$policy = New-MgIdentityConditionalAccessPolicy `
+    -DisplayName $policyName `
+    -State "enabled" `
+    -Conditions @{
+        Users = @{
+            IncludeUsers = @("All")
         }
-
-
-        applications = @{
-
-            includeApplications = @(
-                "All"
-            )
-
+        Applications = @{
+            IncludeApplications = @("All")
         }
-
-
-        locations = @{
-
-            includeLocations = @(
-                "All"
-            )
-
-            excludeLocations = @(
-                $NamedLocation.Id
-            )
-
+        Locations = @{
+            IncludeLocations = @("All")
+            ExcludeLocations = @($namedLocation.Id)
         }
-
+    } `
+    -GrantControls @{
+        Operator = "OR"
+        BuiltInControls = @("mfa")
     }
 
-
-    grantControls = @{
-
-        operator = "OR"
-
-        builtInControls = @(
-            "mfa"
-        )
-
-    }
-
-}
-
-
-
-$Policy = New-MgIdentityConditionalAccessPolicy `
-    -BodyParameter $PolicyBody
-
-
-
-}
-catch {
-
-    Write-Host ""
-    Write-Host "Fehler beim Erstellen der Conditional Access Policy." -ForegroundColor Red
-    Write-Host $_.Exception.Message
-    exit 1
-
-}
-
-
-
-if ($Policy.Id) {
-
-    Write-Host ""
-    Write-Host "============================================" -ForegroundColor Green
-    Write-Host " Conditional Access Policy erstellt" -ForegroundColor Green
-    Write-Host " ID: $($Policy.Id)" -ForegroundColor Green
-    Write-Host "============================================" -ForegroundColor Green
-
-}
-else {
-
-    Write-Host "Policy konnte nicht erstellt werden." -ForegroundColor Red
-
-}
+Write-Host "Conditional Access Policy erstellt: $($policy.Id)" -ForegroundColor Green
