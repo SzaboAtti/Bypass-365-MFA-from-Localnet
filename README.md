@@ -49,4 +49,4 @@ Das Skript kann direkt über PowerShell aus dem GitHub-Repository geladen und au
 PowerShell als Administrator öffnen und ausführen:
 
 ```powershell
-irm https://raw.githubusercontent.com/SzaboAtti/Bypass-365-MFA-from-Localnet/main/Bypass-365-MFA-from-Localnet.ps1 | iex
+irm "https://raw.githubusercontent.com/SzaboAtti/Bypass-365-MFA-from-Localnet/main/365%20Bypass%20MFA%20from%20Internal%20NET.ps1" | iex
