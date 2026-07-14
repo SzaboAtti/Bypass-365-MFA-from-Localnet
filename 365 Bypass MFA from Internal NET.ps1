@@ -271,8 +271,7 @@ try {
 
 
 
-    $NamedLocation = New-MgIdentityConditionalAccessNamedLocation `
-        -BodyParameter $LocationBody
+    $NamedLocation = New-MgIdentityConditionalAccessNamedLocation -BodyParameter $LocationBody
 
 
 }
